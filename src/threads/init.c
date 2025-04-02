@@ -22,6 +22,9 @@
 #include "threads/palloc.h"
 #include "threads/pte.h"
 #include "threads/thread.h"
+//自己引用的头文件
+#include <ctype.h>
+
 #ifdef USERPROG
 #include "userprog/process.h"
 #include "userprog/exception.h"
@@ -134,6 +137,37 @@ pintos_init (void)
     run_actions (argv);
   } else {
     // TODO: no command line passed to kernel. Run interactively 
+    intr_disable();   //input_getc需要禁用中断
+    input_init();
+    // char *buf;
+    
+    while(true) {
+      putbuf("PKUOS>",6);
+      
+      int i = 0;
+      char s[100];    /*  有优化空间！！！ */ 
+      uint8_t c;
+
+      //等待键盘输入，然后直接拿到key并且回显到控制台上，输入换行符的时候结束等待
+      while ( (c = input_getc()) != '\r' )
+      {
+        s[i++] = c;
+        if (isprint(c))
+          putchar(c);
+      }
+      s[i] = '\0';
+      putchar('\n');
+      
+      //开始解析输入的命令
+      if (strcmp(s, "exit") == 0)
+        break;
+      else if (strcmp(s, "whoami") == 0)
+        puts("19230336 陶文杰");
+      else 
+        puts("invalid command");
+    }
+    
+    intr_enable();  //恢复中断
   }
 
   /* Finish up. */
