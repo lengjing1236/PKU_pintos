@@ -1,0 +1,12 @@
+{
+    "files.associations": {
+        "stdio.h": "c",
+        "limits.h": "c",
+        "random.h": "c",
+        "stddef.h": "c",
+        "console.h": "c",
+        "inttypes.h": "c",
+        "debug.h": "c",
+        "*.inc": "c"
+    }
+}
