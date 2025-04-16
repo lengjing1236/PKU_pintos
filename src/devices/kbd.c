@@ -55,8 +55,8 @@ struct keymap
 static const struct keymap invariant_keymap[] = 
   {
     {0x01, "\033"},             /**< Escape. */
-    {0x0e, "\b"},
-    {0x0f, "\tQWERTYUIOP"},
+    {0x0e, "\b"},            //退格键
+    {0x0f, "\tQWERTYUIOP"},           //\t是tab键
     {0x1c, "\r"},
     {0x1e, "ASDFGHJKL"},
     {0x2c, "ZXCVBNM"},

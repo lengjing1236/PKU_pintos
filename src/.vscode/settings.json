@@ -1,5 +1,12 @@
 {
     "files.associations": {
-        "cstdio": "c"
+        "cstdio": "c",
+        "stddef.h": "c",
+        "stdint.h": "c",
+        "debug.h": "c",
+        "tests.h": "c",
+        "string.h": "c",
+        "stdio.h": "c",
+        "io.h": "c"
     }
 }
