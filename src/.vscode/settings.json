@@ -7,6 +7,8 @@
         "tests.h": "c",
         "string.h": "c",
         "stdio.h": "c",
-        "io.h": "c"
+        "io.h": "c",
+        "interrupt.h": "c",
+        "stdbool.h": "c"
     }
 }
