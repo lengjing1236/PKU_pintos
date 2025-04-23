@@ -9,6 +9,8 @@
         "stdio.h": "c",
         "io.h": "c",
         "interrupt.h": "c",
-        "stdbool.h": "c"
+        "stdbool.h": "c",
+        "typeinfo": "c",
+        "synch.h": "c"
     }
 }
