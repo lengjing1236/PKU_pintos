@@ -92,7 +92,7 @@ struct thread
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /**< List element. */
-
+    int64_t wakeup_ticks;               /**< the ticks when the thread should wake up */  
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /**< Page directory. */
@@ -125,6 +125,11 @@ const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
+
+void check_sleep_thread (int64_t cur_ticks);        /* check the wait list to find if any thread needs to be unblocked*/
+
+bool compare_by_priority (const struct list_elem *a, const struct list_elem *b, void *aux); 
+
 
 /** Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);

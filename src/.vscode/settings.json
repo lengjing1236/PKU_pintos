@@ -11,6 +11,7 @@
         "interrupt.h": "c",
         "stdbool.h": "c",
         "typeinfo": "c",
-        "synch.h": "c"
+        "synch.h": "c",
+        "thread.h": "c"
     }
 }

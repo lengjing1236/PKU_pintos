@@ -24,6 +24,8 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+struct semaphore sleep;   /* 阻塞调用timer_sleep()的线程，并维护相应等待链表*/
+
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
@@ -37,6 +39,8 @@ static void real_time_delay (int64_t num, int32_t denom);
 void
 timer_init (void) 
 {
+  sema_init (&sleep, 0);
+
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
@@ -92,17 +96,15 @@ void
 timer_sleep (int64_t ticks) 
 {
   int64_t start = timer_ticks ();
+  struct thread *cur = thread_current ();
 
-  ASSERT (intr_get_level () == INTR_ON);
-  // enum intr_level old_level = intr_disable();
-  
-  
+  ASSERT (intr_get_level () == INTR_ON);  
+
+  cur->wakeup_ticks = start + ticks;
   while (timer_elapsed (start) < ticks) 
   {
-    thread_yield ();  
+    sema_down (&sleep);
   }  
-  // intr_set_level(old_level);
-  
 }
 
 /** Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -179,8 +181,27 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
+  struct list_elem *e = list_begin (&sleep.waiters);
+  
   ticks++;
   thread_tick ();
+  
+  /*ai提示， 将for改为while，由此来自主控制e的改变，防止thread_unblock后
+    e->next访问ready_list*/
+  
+  while (e != list_end (&sleep.waiters)) 
+  {
+    struct thread *t = list_entry (e, struct thread, elem);
+    e = list_next (e);  //此时e已经指向waiters中的下一个元素
+
+    if (ticks >= t->wakeup_ticks) {
+      list_remove (&t->elem);
+      thread_unblock (t);
+      sleep.value++;
+    }
+  }
+
+  // check_sleep_thread (ticks, sleep);     ?
 }
 
 /** Returns true if LOOPS iterations waits for more than one timer

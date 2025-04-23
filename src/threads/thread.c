@@ -314,6 +314,22 @@ thread_yield (void)
   intr_set_level (old_level);
 }
 
+void check_sleep_thread (int64_t cur_ticks) {
+  struct list_elem *e;
+
+  ASSERT (intr_get_level () == INTR_OFF);
+
+
+}
+
+bool compare_by_priority (const struct list_elem *a, const struct list_elem *b, void *aux) {
+  struct thread *ta = list_entry (a, struct thread, elem);
+  struct thread *tb = list_entry (b, struct thread, elem);
+
+  return ta->priority < tb->priority;  
+}
+
+
 /** Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
 void
@@ -462,6 +478,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->wakeup_ticks = INT64_MAX;
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
