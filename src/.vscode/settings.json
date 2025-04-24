@@ -12,6 +12,8 @@
         "stdbool.h": "c",
         "typeinfo": "c",
         "synch.h": "c",
-        "thread.h": "c"
+        "thread.h": "c",
+        "list.h": "c",
+        "palloc.h": "c"
     }
 }

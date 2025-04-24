@@ -101,7 +101,7 @@ timer_sleep (int64_t ticks)
   ASSERT (intr_get_level () == INTR_ON);  
 
   cur->wakeup_ticks = start + ticks;
-  while (timer_elapsed (start) < ticks) 
+  while (timer_elapsed (start) < ticks)
   {
     sema_down (&sleep);
   }  
@@ -181,7 +181,8 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-  struct list_elem *e = list_begin (&sleep.waiters);
+  //考虑优先级，最后一个优先级最高
+  struct list_elem *e = list_rbegin (&sleep.waiters);
   
   ticks++;
   thread_tick ();
@@ -189,10 +190,10 @@ timer_interrupt (struct intr_frame *args UNUSED)
   /*ai提示， 将for改为while，由此来自主控制e的改变，防止thread_unblock后
     e->next访问ready_list*/
   
-  while (e != list_end (&sleep.waiters)) 
+  while (e != list_rend (&sleep.waiters)) 
   {
     struct thread *t = list_entry (e, struct thread, elem);
-    e = list_next (e);  //此时e已经指向waiters中的下一个元素
+    e = list_prev (e);  //此时e已经指向waiters中的下一个元素
 
     if (ticks >= t->wakeup_ticks) {
       list_remove (&t->elem);
