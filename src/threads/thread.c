@@ -71,6 +71,8 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+static void check_thread_preemption (void);
+
 /** Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -239,8 +241,20 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
   list_insert_ordered (&ready_list, &t->elem, compare_by_priority, &t->priority);
   t->status = THREAD_READY;
-  check_thread_preemption();
+  check_thread_preemption ();    //有优先级高的直接调度
+  // check_thread_preemption();
   intr_set_level (old_level);
+}
+
+void check_thread_preemption () {
+  struct thread *highest_priority = list_entry (list_back (&ready_list), struct thread, elem);
+  if (highest_priority->priority > thread_current ()->priority) {
+    if (intr_context ())
+      intr_yield_on_return ();
+    else 
+      thread_yield ();
+  }
+
 }
 
 /** Returns the name of the running thread. */
@@ -315,14 +329,9 @@ thread_yield (void)
   intr_set_level (old_level);
 }
 
-void check_sleep_thread (int64_t cur_ticks) {
-  struct list_elem *e;
 
-  ASSERT (intr_get_level () == INTR_OFF);
-
-
-}
-
+/** an instance of compare function LIST_LESS_FUNC
+  compare two threads by their priority */
 bool compare_by_priority (const struct list_elem *a, const struct list_elem *b, void *aux) {
   struct thread *ta = list_entry (a, struct thread, elem);
   struct thread *tb = list_entry (b, struct thread, elem);
@@ -511,7 +520,12 @@ next_thread_to_run (void)
   if (list_empty (&ready_list))
     return idle_thread;
   else
-    return list_entry (list_pop_back (&ready_list), struct thread, elem);
+  {
+    //select the max_priority thread that comes earlier in the list.
+    struct list_elem *max_pri = list_max (&ready_list, compare_by_priority, NULL);
+    list_remove (max_pri);
+    return list_entry (max_pri, struct thread, elem);
+  }
 }
 
 /** Completes a thread switch by activating the new thread's page

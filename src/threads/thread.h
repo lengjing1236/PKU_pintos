@@ -124,9 +124,7 @@ tid_t thread_tid (void);
 const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
-void thread_yield (void);
-
-void check_sleep_thread (int64_t cur_ticks);        /* check the wait list to find if any thread needs to be unblocked*/
+void thread_yield (void); 
 
 bool compare_by_priority (const struct list_elem *a, const struct list_elem *b, void *aux); 
 
