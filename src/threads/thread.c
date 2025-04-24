@@ -247,14 +247,15 @@ thread_unblock (struct thread *t)
 }
 
 void check_thread_preemption () {
-  struct thread *highest_priority = list_entry (list_back (&ready_list), struct thread, elem);
-  if (highest_priority->priority > thread_current ()->priority) {
-    if (intr_context ())
-      intr_yield_on_return ();
-    else 
-      thread_yield ();
+  if (!list_empty (&ready_list)) {
+    struct thread *highest_priority = list_entry (list_back (&ready_list), struct thread, elem);
+    if (highest_priority->priority > thread_current ()->priority) {
+      if (intr_context ())
+        intr_yield_on_return ();
+      else 
+        thread_yield ();
+    }
   }
-
 }
 
 /** Returns the name of the running thread. */
@@ -362,6 +363,7 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  check_thread_preemption ();
 }
 
 /** Returns the current thread's priority. */
