@@ -253,6 +253,16 @@ struct semaphore_elem
     struct semaphore semaphore;         /**< This semaphore. */
   };
 
+static bool compare_by_semaphore_elem (const struct list_elem *a, const struct list_elem *b, void *aux) {
+  int priority = *(int *)aux;
+
+  struct semaphore_elem *sema_b = list_entry (b, struct semaphore_elem, elem);
+  struct thread *tb = list_entry (list_begin (&sema_b->semaphore.waiters), struct thread, elem);
+  
+  return priority < tb->priority;
+}
+
+
 /** Initializes condition variable COND.  A condition variable
    allows one piece of code to signal a condition and cooperating
    code to receive the signal and act upon it. */
@@ -265,25 +275,25 @@ cond_init (struct condition *cond)
 }
 
 /** Atomically releases LOCK and waits for COND to be signaled by
-   some other piece of code.  After COND is signaled, LOCK is
-   reacquired before returning.  LOCK must be held before calling
-   this function.
+  some other piece of code.  After COND is signaled, LOCK is
+  reacquired before returning.  LOCK must be held before calling
+  this function.
 
-   The monitor implemented by this function is "Mesa" style, not
-   "Hoare" style, that is, sending and receiving a signal are not
-   an atomic operation.  Thus, typically the caller must recheck
-   the condition after the wait completes and, if necessary, wait
-   again.
+  The monitor implemented by this function is "Mesa" style, not
+  "Hoare" style, that is, sending and receiving a signal are not
+  an atomic operation.  Thus, typically the caller must recheck
+  the condition after the wait completes and, if necessary, wait
+  again.
 
-   A given condition variable is associated with only a single
-   lock, but one lock may be associated with any number of
-   condition variables.  That is, there is a one-to-many mapping
-   from locks to condition variables.
+  A given condition variable is associated with only a single
+  lock, but one lock may be associated with any number of
+  condition variables.  That is, there is a one-to-many mapping
+  from locks to condition variables.
 
-   This function may sleep, so it must not be called within an
-   interrupt handler.  This function may be called with
-   interrupts disabled, but interrupts will be turned back on if
-   we need to sleep. */
+  This function may sleep, so it must not be called within an
+  interrupt handler.  This function may be called with
+  interrupts disabled, but interrupts will be turned back on if
+  we need to sleep. */
 void
 cond_wait (struct condition *cond, struct lock *lock) 
 {
@@ -295,7 +305,10 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   sema_init (&waiter.semaphore, 0);
-  list_push_back (&cond->waiters, &waiter.elem);
+  
+  //now the thread is not in the waiter.semaphore.waiters list.
+  //so we need to pass the priority of the current thread to the compare function.
+  list_insert_ordered (&cond->waiters, &waiter.elem, compare_by_semaphore_elem, &thread_current()->priority);   
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);
@@ -317,7 +330,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (lock_held_by_current_thread (lock));
 
   if (!list_empty (&cond->waiters)) 
-    sema_up (&list_entry (list_pop_front (&cond->waiters),
+    sema_up (&list_entry (list_pop_back (&cond->waiters),
                           struct semaphore_elem, elem)->semaphore);
 }
 

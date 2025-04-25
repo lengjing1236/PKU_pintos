@@ -247,7 +247,7 @@ thread_unblock (struct thread *t)
 }
 
 void check_thread_preemption () {
-  if (!list_empty (&ready_list)) {
+  if (!list_empty (&ready_list)) {  //(priority_fifo) 当ready_list没有线程时不需要调度
     struct thread *highest_priority = list_entry (list_back (&ready_list), struct thread, elem);
     if (highest_priority->priority > thread_current ()->priority) {
       if (intr_context ())
@@ -523,7 +523,7 @@ next_thread_to_run (void)
     return idle_thread;
   else
   {
-    //select the max_priority thread that comes earlier in the list.
+    //select the max_priority thread that comes earlier in the list, so that we can run all the max_priority threads in round robin order.
     struct list_elem *max_pri = list_max (&ready_list, compare_by_priority, NULL);
     list_remove (max_pri);
     return list_entry (max_pri, struct thread, elem);
