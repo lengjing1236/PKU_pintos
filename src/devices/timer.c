@@ -17,6 +17,14 @@
 #error TIMER_FREQ <= 1000 recommended
 #endif
 
+/* ===== DEBUG for alarm ===== */
+#define ALARM_DEBUG 1
+#if ALARM_DEBUG
+#define ADBG(...) printf(__VA_ARGS__)
+#else
+#define ADBG(...) ((void)0)
+#endif
+
 /** Number of timer ticks since OS booted. */
 static int64_t ticks;
 
@@ -24,7 +32,7 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
-struct semaphore sleep;   /* 阻塞调用timer_sleep()的线程，并维护相应等待链表*/
+struct list sleep_list;   /* 阻塞调用timer_sleep()的线程，并维护相应等待链表*/
 
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
@@ -39,7 +47,7 @@ static void real_time_delay (int64_t num, int32_t denom);
 void
 timer_init (void) 
 {
-  sema_init (&sleep, 0);
+  list_init (&sleep_list);
 
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
@@ -98,13 +106,12 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
   struct thread *cur = thread_current ();
 
-  ASSERT (intr_get_level () == INTR_ON);  
-
+  ASSERT (intr_get_level () == INTR_ON);
+  enum intr_level old_level = intr_disable ();
   cur->wakeup_ticks = start + ticks;
-  while (timer_elapsed (start) < ticks)
-  {
-    sema_down (&sleep);
-  }  
+  list_insert_ordered (&sleep_list, &cur->elem, compare_by_priority, NULL);
+  thread_block ();
+  intr_set_level (old_level);
 }
 
 /** Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -182,7 +189,7 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   //考虑优先级，最后一个优先级最高
-  struct list_elem *e = list_rbegin (&sleep.waiters);
+  struct list_elem *e = list_rbegin (&sleep_list);
   
   ticks++;
   thread_tick ();
@@ -190,15 +197,17 @@ timer_interrupt (struct intr_frame *args UNUSED)
   /*ai提示， 将for改为while，由此来自主控制e的改变，防止thread_unblock后
     e->next访问ready_list*/
   
-  while (e != list_rend (&sleep.waiters)) 
+  while (e != list_rend (&sleep_list)) 
   {
     struct thread *t = list_entry (e, struct thread, elem);
     e = list_prev (e);  //此时e已经指向waiters中的下一个元素
 
     if (ticks >= t->wakeup_ticks) {
       list_remove (&t->elem);
+      // ADBG("[WAKE  ] now=%lld thread=%s tid=%d wake=%lld %s\n",
+      //      ticks, t->name, t->tid, t->wakeup_ticks,
+      //      (ticks < t->wakeup_ticks) ? "EARLY_WAKE_BUG" : "OK");
       thread_unblock (t);
-      sleep.value++;
     }
   }
 

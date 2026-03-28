@@ -231,7 +231,7 @@ thread_block (void)
    it may expect that it can atomically unblock a thread and
    update other data. */
 void
-thread_unblock (struct thread *t) 
+thread_unblock (struct thread *t)
 {
   enum intr_level old_level;
 
@@ -241,8 +241,7 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
   list_insert_ordered (&ready_list, &t->elem, compare_by_priority, &t->priority);
   t->status = THREAD_READY;
-  check_thread_preemption ();    //有优先级高的直接调度
-  // check_thread_preemption();
+  // check_thread_preemption ();    //有优先级高的直接调度
   intr_set_level (old_level);
 }
 
@@ -337,7 +336,7 @@ bool compare_by_priority (const struct list_elem *a, const struct list_elem *b, 
   struct thread *ta = list_entry (a, struct thread, elem);
   struct thread *tb = list_entry (b, struct thread, elem);
 
-  return ta->priority < tb->priority;  
+  return ta->priority < tb->priority;
 }
 
 
