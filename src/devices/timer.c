@@ -208,6 +208,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
       //      ticks, t->name, t->tid, t->wakeup_ticks,
       //      (ticks < t->wakeup_ticks) ? "EARLY_WAKE_BUG" : "OK");
       thread_unblock (t);
+      check_thread_preemption ();
     }
   }
 

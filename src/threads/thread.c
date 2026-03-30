@@ -71,7 +71,7 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
-static void check_thread_preemption (void);
+// static void check_thread_preemption (void);
 
 /** Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -202,6 +202,7 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
+  check_thread_preemption ();
 
   return tid;
 }
