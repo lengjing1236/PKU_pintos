@@ -199,11 +199,13 @@ lock_acquire (struct lock *lock)
 
   struct thread *cur = thread_current ();
   struct thread *holder = lock->holder;
+  cur->waiting_lock = lock;   // 设置当前线程等待该锁（无论捐不捐赠）
+                              // 由于优先级调度，L不会获取H持有的锁
 
-  if (holder != NULL) {
-    // 锁被其他线程持有
+  if (holder != NULL && cur->priority > holder->base_priority) {
+    // 锁被其他线程持有，并且当前线程的优先级高于持有锁的线程的base priority
+    // 此时需要捐赠优先级给holder
 
-    cur->waiting_lock = lock;   // 设置当前线程等待该锁
     // 当前线程加入持有锁的线程的捐赠链表
     list_insert_ordered (&holder->donation_list, &cur->donation_elem, compare_by_priority, NULL);
     
@@ -212,10 +214,17 @@ lock_acquire (struct lock *lock)
       holder->priority = cur->priority;
     }
 
+    while (holder->waiting_lock != NULL) {   // holder也在等待其他锁，嵌套捐赠
+      holder = holder->waiting_lock->holder;
+      holder->priority = cur->priority;
+    }
   }
+
+  
 
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
+  cur->waiting_lock = NULL;
 }
 
 /** Tries to acquires LOCK and returns true if successful or false

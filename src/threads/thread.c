@@ -363,10 +363,21 @@ void
 thread_set_priority (int new_priority) 
 {
   struct thread *cur = thread_current ();
+  
+  if (cur->base_priority == cur->priority)    // case 1: 无优先级捐赠
+    { 
+      cur->priority = new_priority;
+    } 
+  else                                        // case 2：有优先级捐赠
+    {
+      // 新优先级比捐赠优先级高，更改，否则维持捐赠优先级
+      if (new_priority > cur->priority) 
+        {
+          cur->priority = new_priority;
+        }
+    }
   cur->base_priority = new_priority;
-  if (new_priority > cur->priority) {
-    cur->priority = new_priority;
-  }
+  
   check_thread_preemption ();
 }
 
