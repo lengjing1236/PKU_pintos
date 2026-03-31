@@ -118,6 +118,7 @@ sema_up (struct semaphore *sema)
                                 struct thread, elem));
   sema->value++;
   intr_set_level (old_level);
+  check_thread_preemption ();
 }
 
 static void sema_test_helper (void *sema_);
@@ -196,6 +197,23 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  struct thread *cur = thread_current ();
+  struct thread *holder = lock->holder;
+
+  if (holder != NULL) {
+    // 锁被其他线程持有
+
+    cur->waiting_lock = lock;   // 设置当前线程等待该锁
+    // 当前线程加入持有锁的线程的捐赠链表
+    list_insert_ordered (&holder->donation_list, &cur->donation_elem, compare_by_priority, NULL);
+    
+    if (holder->priority < cur->priority) {
+      // 保持holder提升到最大的捐赠优先级
+      holder->priority = cur->priority;
+    }
+
+  }
+
   sema_down (&lock->semaphore);
   lock->holder = thread_current ();
 }
@@ -231,8 +249,32 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  struct thread *cur = thread_current ();
+  if (cur->base_priority != cur->priority) {
+    // 该线程被优先级捐赠过
+
+    // 从donation_list中删除等待这把lock的线程
+    for (struct list_elem *e = list_rbegin (&cur->donation_list); 
+      e != list_rend (&cur->donation_list); e = list_prev (e)) {
+        struct thread *donor = list_entry (e, struct thread, donation_elem);
+        if (donor->waiting_lock == lock) {
+          list_remove (e);
+        }
+      }
+    
+    // 如果cur线程还持有别的lock，并且发生优先级捐赠，那么应当将cur的priority设置为捐赠线程中的最高优先级
+    if (!list_empty (&cur->donation_list)) {
+      struct thread *max_pri_thread = list_entry (list_back (&cur->donation_list), struct thread, donation_elem) ;
+      cur->priority = max_pri_thread->priority;
+    } else {
+      cur->priority = cur->base_priority;
+    }
+    
+  }
+
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+  
 }
 
 /** Returns true if the current thread holds LOCK, false

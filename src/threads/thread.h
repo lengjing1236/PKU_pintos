@@ -93,6 +93,10 @@ struct thread
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /**< List element. */
     int64_t wakeup_ticks;               /**< the ticks when the thread should wake up */  
+    int base_priority;                  /**< the priority before priority donation */
+    struct list donation_list;          /**< 维护捐赠优先级给当前线程的线程列表 */
+    struct list_elem donation_elem;     /**< list element for donation threads list */
+    struct lock *waiting_lock;
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /**< Page directory. */
