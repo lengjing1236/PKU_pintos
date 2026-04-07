@@ -113,9 +113,12 @@ sema_up (struct semaphore *sema)
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
-  if (!list_empty (&sema->waiters)) 
-    thread_unblock (list_entry (list_pop_back (&sema->waiters),
+  if (!list_empty (&sema->waiters))
+  {
+    list_sort (&sema->waiters, compare_by_priority, NULL);
+    thread_unblock (list_entry (list_pop_front (&sema->waiters),
                                 struct thread, elem));
+  }
   sema->value++;
   intr_set_level (old_level);
   check_thread_preemption ();
@@ -273,7 +276,7 @@ lock_release (struct lock *lock)
     
     // 如果cur线程还持有别的lock，并且发生优先级捐赠，那么应当将cur的priority设置为捐赠线程中的最高优先级
     if (!list_empty (&cur->donation_list)) {
-      struct thread *max_pri_thread = list_entry (list_back (&cur->donation_list), struct thread, donation_elem) ;
+      struct thread *max_pri_thread = list_entry (list_front (&cur->donation_list), struct thread, donation_elem) ;
       cur->priority = max_pri_thread->priority;
     } else {
       cur->priority = cur->base_priority;

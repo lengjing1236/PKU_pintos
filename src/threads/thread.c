@@ -242,13 +242,13 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
   list_insert_ordered (&ready_list, &t->elem, compare_by_priority, &t->priority);
   t->status = THREAD_READY;
-  // check_thread_preemption ();    //有优先级高的直接调度
   intr_set_level (old_level);
 }
 
 void check_thread_preemption () {
+  enum intr_level old_level = intr_disable ();
   if (!list_empty (&ready_list)) {  //(priority_fifo) 当ready_list没有线程时不需要调度
-    struct thread *highest_priority = list_entry (list_back (&ready_list), struct thread, elem);
+    struct thread *highest_priority = list_entry (list_front (&ready_list), struct thread, elem);
     if (highest_priority->priority > thread_current ()->priority) {
       if (intr_context ())
         intr_yield_on_return ();
@@ -256,6 +256,7 @@ void check_thread_preemption () {
         thread_yield ();
     }
   }
+  intr_set_level (old_level);
 }
 
 /** Returns the name of the running thread. */
@@ -337,9 +338,18 @@ bool compare_by_priority (const struct list_elem *a, const struct list_elem *b, 
   struct thread *ta = list_entry (a, struct thread, elem);
   struct thread *tb = list_entry (b, struct thread, elem);
 
-  return ta->priority < tb->priority;
+  return ta->priority > tb->priority;
 }
 
+/** an instance of compare function LIST_LESS_FUNC
+  compare two threads by their wakeup_ticks */
+bool compare_by_wakeup_ticks(const struct list_elem *a, const struct list_elem *b, void *aux) {
+  struct thread *ta = list_entry (a, struct thread, elem);
+  struct thread *tb = list_entry (b, struct thread, elem);
+
+  // 同wakeup_ticks时，先sleep的先唤醒
+  return ta->wakeup_ticks < tb->wakeup_ticks;
+}
 
 /** Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
@@ -542,9 +552,9 @@ next_thread_to_run (void)
   else
   {
     //select the max_priority thread that comes earlier in the list, so that we can run all the max_priority threads in round robin order.
-    struct list_elem *max_pri = list_max (&ready_list, compare_by_priority, NULL);
-    list_remove (max_pri);
-    return list_entry (max_pri, struct thread, elem);
+    // struct list_elem *max_pri = list_max (&ready_list, compare_by_priority, NULL);
+    // list_remove (max_pri);
+    return list_entry (list_pop_front (&ready_list), struct thread, elem);
   }
 }
 

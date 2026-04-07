@@ -103,14 +103,18 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
+  ASSERT (intr_get_level () == INTR_ON);
+
+  enum intr_level old_level = intr_disable ();
   int64_t start = timer_ticks ();
   struct thread *cur = thread_current ();
-
-  ASSERT (intr_get_level () == INTR_ON);
-  enum intr_level old_level = intr_disable ();
+  
   cur->wakeup_ticks = start + ticks;
-  list_insert_ordered (&sleep_list, &cur->elem, compare_by_priority, NULL);
+  list_insert_ordered (&sleep_list, &cur->elem, compare_by_wakeup_ticks, NULL);
+  // ADBG("[SLEEP ] now=%lld thread=%s tid=%d sleep_ticks=%lld wake=%lld\n",
+  //      start, cur->name, cur->tid, ticks, cur->wakeup_ticks);
   thread_block ();
+  
   intr_set_level (old_level);
 }
 
@@ -188,8 +192,6 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-  //考虑优先级，最后一个优先级最高
-  struct list_elem *e = list_rbegin (&sleep_list);
   
   ticks++;
   thread_tick ();
@@ -197,18 +199,19 @@ timer_interrupt (struct intr_frame *args UNUSED)
   /*ai提示， 将for改为while，由此来自主控制e的改变，防止thread_unblock后
     e->next访问ready_list*/
   
-  while (e != list_rend (&sleep_list)) 
+  while (!list_empty (&sleep_list)) 
   {
-    struct thread *t = list_entry (e, struct thread, elem);
-    e = list_prev (e);  //此时e已经指向waiters中的下一个元素
+    struct thread *t = list_entry (list_front (&sleep_list), struct thread, elem);
 
     if (ticks >= t->wakeup_ticks) {
-      list_remove (&t->elem);
+      list_pop_front (&sleep_list);
       // ADBG("[WAKE  ] now=%lld thread=%s tid=%d wake=%lld %s\n",
       //      ticks, t->name, t->tid, t->wakeup_ticks,
       //      (ticks < t->wakeup_ticks) ? "EARLY_WAKE_BUG" : "OK");
       thread_unblock (t);
-      check_thread_preemption ();
+      // check_thread_preemption ();
+    } else {
+      break;
     }
   }
 
