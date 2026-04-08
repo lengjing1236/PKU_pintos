@@ -214,7 +214,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
     }
   }
 
-  // check_sleep_thread (ticks, sleep);     ?
+  check_thread_preemption ();
 }
 
 /** Returns true if LOOPS iterations waits for more than one timer

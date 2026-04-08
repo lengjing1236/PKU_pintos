@@ -214,7 +214,7 @@ thread_create (const char *name, int priority,
   if (thread_mlfqs) 
     {
       t->nice = thread_get_nice ();
-      t->recent_cpu = thread_get_recent_cpu ();
+      t->recent_cpu = thread_current ()->recent_cpu;
       mlfqs_update_priority (t, NULL);
     }
   
@@ -281,15 +281,18 @@ thread_unblock (struct thread *t)
 
 void check_thread_preemption () {
   enum intr_level old_level = intr_disable ();
-  if (!list_empty (&ready_list)) {  //(priority_fifo) 当ready_list没有线程时不需要调度
-    struct thread *highest_priority = list_entry (list_front (&ready_list), struct thread, elem);
-    if (highest_priority->priority > thread_current ()->priority) {
-      if (intr_context ())
-        intr_yield_on_return ();
-      else 
-        thread_yield ();
+  if (!list_empty (&ready_list)) 
+    {  
+      //(priority_fifo) 当ready_list没有线程时不需要调度
+      struct thread *highest_priority = list_entry (list_front (&ready_list), struct thread, elem);
+      if (highest_priority->priority > thread_current ()->priority) 
+        {
+          if (intr_context ())
+            intr_yield_on_return ();
+          else 
+            thread_yield ();
+        }
     }
-  }
   intr_set_level (old_level);
 }
 
