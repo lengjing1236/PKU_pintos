@@ -7,6 +7,7 @@
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
+#include "threads/fixed-point.h"
   
 /** See [8254] for hardware details of the 8254 timer chip. */
 
@@ -192,7 +193,6 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-  
   ticks++;
   thread_tick ();
   
@@ -209,7 +209,6 @@ timer_interrupt (struct intr_frame *args UNUSED)
       //      ticks, t->name, t->tid, t->wakeup_ticks,
       //      (ticks < t->wakeup_ticks) ? "EARLY_WAKE_BUG" : "OK");
       thread_unblock (t);
-      // check_thread_preemption ();
     } else {
       break;
     }

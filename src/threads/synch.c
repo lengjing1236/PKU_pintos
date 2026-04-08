@@ -205,7 +205,7 @@ lock_acquire (struct lock *lock)
   cur->waiting_lock = lock;   // 设置当前线程等待该锁（无论捐不捐赠）
                               // 由于优先级调度，L不会获取H持有的锁
 
-  if (holder != NULL && cur->priority > holder->base_priority) {
+  if (!thread_mlfqs && holder != NULL && cur->priority > holder->base_priority) {
     // 锁被其他线程持有，并且当前线程的优先级高于持有锁的线程的base priority
     // 此时需要捐赠优先级给holder
 
@@ -262,7 +262,7 @@ lock_release (struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
 
   struct thread *cur = thread_current ();
-  if (cur->base_priority != cur->priority) {
+  if (!thread_mlfqs && cur->base_priority != cur->priority) {
     // 该线程被优先级捐赠过
 
     // 从donation_list中删除等待这把lock的线程

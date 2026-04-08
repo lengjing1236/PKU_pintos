@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "fixed-point.h"
 
 /** States in a thread's life cycle. */
 enum thread_status
@@ -96,7 +97,11 @@ struct thread
     int base_priority;                  /**< the priority before priority donation */
     struct list donation_list;          /**< 维护捐赠优先级给当前线程的线程列表 */
     struct list_elem donation_elem;     /**< list element for donation threads list */
-    struct lock *waiting_lock;
+    struct lock *waiting_lock;          /**< 线程正在等待的锁 */
+
+    /* Used by mlfqs */
+    int nice;
+    fixed_point recent_cpu;
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /**< Page directory. */
@@ -146,4 +151,7 @@ void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
+void update_load_avg (void);
+void update_recent_cpu (struct thread *t, void *aux);
+void mlfqs_update_priority (struct thread *t, void *aux);
 #endif /**< threads/thread.h */

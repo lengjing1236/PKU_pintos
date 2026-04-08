@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -58,6 +59,7 @@ static unsigned thread_ticks;   /**< # of timer ticks since last yield. */
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
+fixed_point load_avg;
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -94,10 +96,14 @@ thread_init (void)
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&all_list);
+  load_avg = 0;
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
+  initial_thread->nice = 0;
+  initial_thread->recent_cpu = 0;
+  initial_thread->priority = PRI_MAX;
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
 }
@@ -136,6 +142,27 @@ thread_tick (void)
   else
     kernel_ticks++;
 
+  if (thread_mlfqs) 
+    {
+      int64_t ticks_now = timer_ticks (); 
+      if (t != idle_thread) 
+        {
+          t->recent_cpu = add_fp_int (t->recent_cpu, 1);
+        }
+
+      if (ticks_now % TIMER_FREQ == 0) 
+        {
+          update_load_avg ();
+          thread_foreach (update_recent_cpu, NULL);
+        }
+
+      if (ticks_now % 4 == 0)
+        {
+          thread_foreach (mlfqs_update_priority, NULL);
+          list_sort (&ready_list, compare_by_priority, NULL);
+        }
+    }
+    
   /* Enforce preemption. */
   if (++thread_ticks >= TIME_SLICE)
     intr_yield_on_return ();
@@ -184,6 +211,13 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+  if (thread_mlfqs) 
+    {
+      t->nice = thread_get_nice ();
+      t->recent_cpu = thread_get_recent_cpu ();
+      mlfqs_update_priority (t, NULL);
+    }
+  
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -372,6 +406,9 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
+  if (thread_mlfqs)         // 多级反馈队列调度，忽略优先级设置
+    return;
+  
   struct thread *cur = thread_current ();
   
   if (cur->base_priority == cur->priority)    // case 1: 无优先级捐赠
@@ -400,34 +437,68 @@ thread_get_priority (void)
 
 /** Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) 
+thread_set_nice (int nice) 
 {
-  /* Not yet implemented. */
+  thread_current ()->nice = nice;
+  mlfqs_update_priority (thread_current (), NULL);
+  check_thread_preemption ();
 }
 
 /** Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return thread_current ()->nice;
 }
 
 /** Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return fp_to_int_nearest (mul_fp_int (load_avg, 100));
 }
 
 /** Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  /* Not yet implemented. */
-  return 0;
+  return fp_to_int_nearest (mul_fp_int (thread_current ()->recent_cpu, 100));
 }
+
+/** 全局实数变量load_avg，每秒更新一次 */
+void update_load_avg (void)
+{
+  ASSERT (intr_context ());
+
+  int ready_threads = list_size(&ready_list);
+  if (thread_current () != idle_thread) ready_threads++;
+  
+  // printf ("ready_threads: %d\n", ready_threads);
+  load_avg = add_fp (mul_fp (divide_fp_int (int_to_fp (59), 60), load_avg), 
+      mul_fp_int (divide_fp_int (int_to_fp (1), 60), ready_threads));
+  // printf ("load_avg = %d\n", load_avg);
+}
+
+/** 线程的实数变量recent_cpu，每个tick加一，每秒一次大更新 */
+void update_recent_cpu (struct thread *t, void *aux) 
+{
+  if (t == idle_thread) return;
+
+  int coeff = divide_fp (mul_fp_int (load_avg, 2), add_fp_int (mul_fp_int (load_avg, 2), 1));
+  t->recent_cpu = add_fp_int (mul_fp (coeff, t->recent_cpu), t->nice);    // 问题点，把nice当成定点数加了
+}
+
+/** mlfqs下计算线程的优先级，每四个tick更新一次 */
+void mlfqs_update_priority (struct thread *t, void *aux) 
+{
+  if (t == idle_thread) return;
+
+  int p = PRI_MAX - fp_to_int_zero (divide_fp_int (t->recent_cpu, 4)) - 2 * t->nice;
+  if (p > PRI_MAX) p = PRI_MAX;
+  if (p < PRI_MIN) p = PRI_MIN;
+  t->priority = p;
+}
+
 
 /** Idle thread.  Executes when no other thread is ready to run.
 
@@ -514,9 +585,13 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
-  t->priority = priority;
+  if (!thread_mlfqs) {
+    // 忽略优先级的设置
+    t->priority = priority;
+    t->base_priority = priority;
+  }
+  
   t->wakeup_ticks = INT64_MAX;
-  t->base_priority = priority;
   list_init (&t->donation_list);
   t->waiting_lock = NULL;
   t->magic = THREAD_MAGIC;
