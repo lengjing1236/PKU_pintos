@@ -115,7 +115,7 @@ sema_up (struct semaphore *sema)
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters))
   {
-    list_sort (&sema->waiters, compare_by_priority, NULL);
+    list_sort (&sema->waiters, compare_by_priority, NULL);      // 有可能因为优先级捐赠导致waiters中的线程优先级被修改
     thread_unblock (list_entry (list_pop_front (&sema->waiters),
                                 struct thread, elem));
   }

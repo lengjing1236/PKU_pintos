@@ -487,7 +487,7 @@ void update_recent_cpu (struct thread *t, void *aux)
 {
   if (t == idle_thread) return;
 
-  int coeff = divide_fp (mul_fp_int (load_avg, 2), add_fp_int (mul_fp_int (load_avg, 2), 1));
+  fixed_point coeff = divide_fp (mul_fp_int (load_avg, 2), add_fp_int (mul_fp_int (load_avg, 2), 1));
   t->recent_cpu = add_fp_int (mul_fp (coeff, t->recent_cpu), t->nice);    // 问题点，把nice当成定点数加了
 }
 
