@@ -101,9 +101,13 @@ thread_init (void)
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
-  initial_thread->nice = 0;
-  initial_thread->recent_cpu = 0;
-  initial_thread->priority = PRI_MAX;
+  if (thread_mlfqs)
+  {
+    // mlfqs时设置
+    initial_thread->nice = 0;
+    initial_thread->recent_cpu = 0;
+    initial_thread->priority = PRI_MAX;
+  }
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
 }
@@ -597,6 +601,15 @@ init_thread (struct thread *t, const char *name, int priority)
   t->wakeup_ticks = INT64_MAX;
   list_init (&t->donation_list);
   t->waiting_lock = NULL;
+  #ifdef USERPROG
+  t->pagedir = NULL;
+
+  list_init (&t->children_list);
+  t->self_stat = NULL;
+  t->next_fd = 2;
+  list_init (&t->fd_list);
+  #endif
+
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();

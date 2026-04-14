@@ -4,7 +4,7 @@
 #include <round.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include "lib/string.h"
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
@@ -17,9 +17,63 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+
+/* ---------------- child_status helpers ---------------- */
+static struct child_status *
+child_status_create (tid_t tid) {
+  // 必须用malloc创建，保证线程退出之后依然可以访问
+  struct child_status *cs = malloc (sizeof *cs);
+  if (cs == NULL) 
+    return NULL;
+
+  struct thread *cur = thread_current ();
+  
+  cs->child_tid = tid;
+  cs->load_success = false;
+  sema_init (&cs->load_sema, 0);
+
+  cs->exit_status = -1;
+  cs->is_exit = false;
+  sema_init (&cs->exit_sema, 0);
+
+  cs->ref_cnt = 2;
+  lock_init (&cs->ref_lock);
+
+  return cs;
+}
+
+static struct child_status *
+get_child_status (tid_t child_tid)
+{
+  struct thread *cur = thread_current ();
+
+  struct list_elem *e;
+  for (e = list_begin (&cur->children_list); e != list_end (&cur->children_list); 
+        e = list_next (e))
+        {
+          struct child_status *cs = list_entry (e, struct child_status, elem);
+          if (cs->child_tid == child_tid)
+            {
+              return cs;
+            }
+        }
+  return NULL;
+}
+
+static void
+release_status_ref (struct child_status *cs)
+{
+  lock_acquire (&cs->ref_lock);
+  cs->ref_cnt--;
+  lock_release (&cs->ref_lock);
+
+  if (cs->ref_cnt == 0)
+    free (cs);
+}
 
 /** Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -28,29 +82,78 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
-  char *fn_copy;
+  char *cmd_copy = NULL;
+  char *name_copy = NULL, *save_ptr;
+  struct exec_aux *aux = NULL;
+  struct child_status *child_stat = NULL;
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-  fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
-    return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
+  cmd_copy = palloc_get_page (0);
+  if (cmd_copy == NULL)
+    goto fail;
+  strlcpy (cmd_copy, file_name, PGSIZE);
+
+  /* 复制cmd，提取程序的名字 */
+  name_copy = palloc_get_page (0);
+  if (name_copy == NULL) 
+    goto fail;
+  strlcpy (name_copy, file_name, PGSIZE);
+
+  char *prog_name = strtok_r (name_copy, " ", &save_ptr);
+  if (prog_name == NULL) goto fail;
+
+  /* 初始化子进程的状态结构体 */
+  child_stat = child_status_create (TID_ERROR);
+  if (child_stat == NULL) goto fail;
+
+  /* 创建执行上下文 */
+  aux = malloc (sizeof *aux);
+  if (aux == NULL) goto fail;
+  aux->cmdline = cmd_copy;
+  aux->child_stat = child_stat;
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (prog_name, PRI_DEFAULT, start_process, aux);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+      // 内存池不够，直接返回
+      goto fail;
+
+  sema_down (&child_stat->load_sema);
+  if (!child_stat->load_success)
+    goto load_fail;
+
+  /* 创建子进程成功，设置剩余的子进程状态字段，
+    并将状态添加到当前进程的子进程状态链表 */
+  child_stat->child_tid = tid;
+  list_push_back (&thread_current ()->children_list, &child_stat->elem);
+
+  palloc_free_page (name_copy);
+  free (aux);
   return tid;
+
+fail:
+    if (cmd_copy) palloc_free_page (cmd_copy);
+
+load_fail:
+    if (name_copy) palloc_free_page (name_copy);
+    
+    if (child_stat) free (child_stat);
+    if (aux) free (aux);
+    return TID_ERROR;
 }
 
 /** A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *aux_)
 {
-  char *file_name = file_name_;
+  struct exec_aux *aux = aux_;
+  char *cmdline = aux->cmdline;
+  struct child_status *child_stat = aux->child_stat;
+
+  struct thread *cur = thread_current ();
   struct intr_frame if_;
   bool success;
 
@@ -59,12 +162,18 @@ start_process (void *file_name_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (cmdline, &if_.eip, &if_.esp);
+
+  // 提醒父进程 load 的结果
+  child_stat->load_success = success;
+  sema_up (&child_stat->load_sema);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
+  palloc_free_page (cmdline);
   if (!success) 
     thread_exit ();
+
+  cur->self_stat = child_stat;  // 设置进程的状态指针
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -86,9 +195,23 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  return -1;
+  if (child_tid == TID_ERROR)    // 进程创建失败
+    return -1;
+
+  struct child_status *cs = get_child_status (child_tid);
+  int status;
+  
+  if (cs == NULL)         // 不是当前进程的子进程
+    return -1;
+
+  sema_down (&cs->exit_sema);
+  status = cs->exit_status;
+
+  list_remove (&cs->elem);
+  release_status_ref (cs);
+  return status;
 }
 
 /** Free the current process's resources. */
@@ -113,6 +236,34 @@ process_exit (void)
       cur->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
+    }
+
+  // init线程没有父线程，也可能load失败
+  if (cur->self_stat)
+    {
+      cur->self_stat->is_exit = true;
+      sema_up (&cur->self_stat->exit_sema);
+      release_status_ref (cur->self_stat);
+    }
+
+  while (!list_empty (&cur->children_list))
+    {
+      struct list_elem *e = list_pop_front (&cur->children_list);
+      struct child_status *cs = list_entry (e, struct child_status, elem);
+      release_status_ref (cs);
+    }
+  
+  while (!list_empty (&cur->fd_list))
+    {
+      struct file_desc *d = list_entry (list_pop_front (&cur->fd_list), struct file_desc, elem);
+      file_close (d->file);
+      free (d);
+    }
+
+  if (cur->exec_file) 
+    {
+      file_close (cur->exec_file);
+      cur->exec_file = NULL;
     }
 }
 
@@ -195,7 +346,7 @@ struct Elf32_Phdr
 #define PF_W 2          /**< Writable. */
 #define PF_R 4          /**< Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, const char *cmdline);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -206,7 +357,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const char *file_name, void (**eip) (void), void **esp) 
+load (const char *cmdline, void (**eip) (void), void **esp) 
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -215,6 +366,15 @@ load (const char *file_name, void (**eip) (void), void **esp)
   bool success = false;
   int i;
 
+  /* 复制cmd到buf，解析出程序名 */
+  char *cmd_buf = palloc_get_page (0);
+  if (cmd_buf == NULL) goto done;
+  strlcpy (cmd_buf, cmdline, PGSIZE);
+
+  char *save_ptr;
+  char *prog_name = strtok_r (cmd_buf, " ", &save_ptr);
+  if (prog_name == NULL) goto done;
+
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
@@ -222,13 +382,15 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  file = filesys_open (file_name);
+  file = filesys_open (prog_name);
   if (file == NULL) 
     {
-      printf ("load: %s: open failed\n", file_name);
+      printf ("load: %s: open failed\n", prog_name);
       goto done; 
     }
-
+  file_deny_write (file);
+  t->exec_file = file;
+  
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -238,7 +400,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
       || ehdr.e_phentsize != sizeof (struct Elf32_Phdr)
       || ehdr.e_phnum > 1024) 
     {
-      printf ("load: %s: error loading executable\n", file_name);
+      printf ("load: %s: error loading executable\n", prog_name);
       goto done; 
     }
 
@@ -302,7 +464,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, cmdline))
     goto done;
 
   /* Start address. */
@@ -312,7 +474,13 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
+  if (cmd_buf) palloc_free_page (cmd_buf);
+  if (!success && file)
+    {
+      file_close (file);
+      t->exec_file = NULL;
+    }
+  
   return success;
 }
 
@@ -427,21 +595,78 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /** Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, const char *cmdline) 
 {
+  char *argv[128];    // pintos 参数最大值
+  int argc = 0, i;
   uint8_t *kpage;
   bool success = false;
 
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage != NULL) 
+  if (kpage == NULL) return false;
+    
+  success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+  if (!success)
     {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE;
-      else
-        palloc_free_page (kpage);
+      palloc_free_page (kpage);
+      return false;
     }
-  return success;
+    
+  *esp = PHYS_BASE;
+
+  char *buf = palloc_get_page (0);
+  if (buf == NULL) return false;
+  strlcpy (buf, cmdline, PGSIZE);
+
+  /* parse the command arguement */
+  char *token, *save_ptr;
+  for (token = strtok_r (buf, " ", &save_ptr);
+       token != NULL;
+       token = strtok_r (NULL, " ", &save_ptr))
+    argv[argc++] = token;
+
+  /* push arg strings in reverse */
+  char *arg_addrs[128];
+  for (i = argc - 1; i >= 0; i--) {
+    size_t len = strlen (argv[i]) + 1;
+    *esp -= len;
+    memcpy (*esp, argv[i], len);
+    arg_addrs[i] = *esp;
+  }
+
+  /* word align */
+  while ((uintptr_t)(*esp) % 4 != 0) {
+    *esp -= 1;
+    *(uint8_t *)(*esp) = 0;
+  }
+
+  /* null sentinel */
+  *esp -= sizeof (char *);
+  *(char **)(*esp) = NULL;
+
+  /* push argv[i] pointers */
+  for (i = argc - 1; i >= 0; i--) {
+    *esp -= sizeof (char *);
+    *(char **)(*esp) = arg_addrs[i];
+  }
+
+  /* push argv (char **) */
+  char **argv_addr = *esp;
+  // printf ("argv_addr: %p\n", argv_addr);
+  *esp -= sizeof (char **);
+  *(char ***)(*esp) = argv_addr;
+
+  /* push argc */
+  *esp -= sizeof (int);
+  *(int *)(*esp) = argc;
+
+  /* fake return address */
+  *esp -= sizeof (void *);
+  *(void **)(*esp) = NULL;
+
+  palloc_free_page (buf);
+  // 总结：全部都要使用对应的类型来计算，易读吗？
+  return true;
 }
 
 /** Adds a mapping from user virtual address UPAGE to kernel

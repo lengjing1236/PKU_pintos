@@ -105,6 +105,15 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /**< Page directory. */
+
+    /* used by wait() */
+    struct list children_list;          /**< 维护子进程状态的链表 */
+    struct child_status *self_stat;     /**< 共享父子进程的状态 */
+    
+    /* used by file-related syscall */
+    int next_fd;                        /**< 下一个要分配的文件描述符 */
+    struct list fd_list;                /**< 一个进程的所拥有的文件链表 */
+    struct file *exec_file;             /**< 执行中的文件，不可写入 */
 #endif
 
     /* Owned by thread.c. */
