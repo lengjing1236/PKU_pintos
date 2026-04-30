@@ -34,6 +34,13 @@
 #else
 #include "tests/threads/tests.h"
 #endif
+
+#ifdef VM
+#include "vm/frame.h"
+#include "vm/page.h"
+#include "vm/swap.h"
+#endif
+
 #ifdef FILESYS
 #include "devices/block.h"
 #include "devices/ide.h"
@@ -101,6 +108,9 @@ pintos_init (void)
   palloc_init (user_page_limit);
   malloc_init ();
   paging_init ();
+
+  /* 初始化虚拟内存的相关表 */
+  frame_table_init ();
 
   /* Segmentation. */
 #ifdef USERPROG

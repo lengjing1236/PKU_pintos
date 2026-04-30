@@ -85,5 +85,4 @@ vtop (const void *vaddr)
 
   return (uintptr_t) vaddr - (uintptr_t) PHYS_BASE;
 }
-
 #endif /**< threads/vaddr.h */

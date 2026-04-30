@@ -18,6 +18,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
+#include "vm/frame.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -555,40 +556,79 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
 
-  file_seek (file, ofs);
-  while (read_bytes > 0 || zero_bytes > 0) 
-    {
-      /* Calculate how to fill this page.
-         We will read PAGE_READ_BYTES bytes from FILE
-         and zero the final PAGE_ZERO_BYTES bytes. */
-      size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-      size_t page_zero_bytes = PGSIZE - page_read_bytes;
+  #ifndef VM
+    file_seek (file, ofs);
+    while (read_bytes > 0 || zero_bytes > 0) 
+      {
+        /* Calculate how to fill this page.
+          We will read PAGE_READ_BYTES bytes from FILE
+          and zero the final PAGE_ZERO_BYTES bytes. */
+        size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+        size_t page_zero_bytes = PGSIZE - page_read_bytes;      
 
-      /* Get a page of memory. */
-      uint8_t *kpage = palloc_get_page (PAL_USER);
-      if (kpage == NULL)
-        return false;
+        /* Get a page of memory. */
+        uint8_t *kpage = palloc_get_page (PAL_USER);
+        if (kpage == NULL)
+          return false;
 
-      /* Load this page. */
-      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-        {
-          palloc_free_page (kpage);
-          return false; 
-        }
-      memset (kpage + page_read_bytes, 0, page_zero_bytes);
+        /* Load this page. */
+        if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+          {
+            palloc_free_page (kpage);
+            return false; 
+          }
+        memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
-      /* Add the page to the process's address space. */
-      if (!install_page (upage, kpage, writable)) 
-        {
-          palloc_free_page (kpage);
-          return false; 
-        }
+        /* Add the page to the process's address space. */
+        if (!install_page (upage, kpage, writable)) 
+          {
+            palloc_free_page (kpage);
+            return false; 
+          }
 
-      /* Advance. */
-      read_bytes -= page_read_bytes;
-      zero_bytes -= page_zero_bytes;
-      upage += PGSIZE;
-    }
+        /* Advance. */
+        read_bytes -= page_read_bytes;
+        zero_bytes -= page_zero_bytes;
+        upage += PGSIZE;
+      }
+
+  #else
+    // fill in code for demand paging behavior in lab 3.
+    file_seek (file, ofs);
+    while (read_bytes > 0 || zero_bytes > 0) 
+      {
+        /* Calculate how to fill this page.
+          We will read PAGE_READ_BYTES bytes from FILE
+          and zero the final PAGE_ZERO_BYTES bytes. */
+        size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+        size_t page_zero_bytes = PGSIZE - page_read_bytes;
+
+        /* Get a page of memory. */
+        uint8_t *kpage = alloc_frame (upage);
+
+        // /* Load this page. */
+        if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+          {
+            free_frame (kpage);
+            return false; 
+          }
+        memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+        /* Add the page to the process's address space. */
+        if (!install_page (upage, kpage, writable)) 
+          {
+            free_frame (kpage);
+            return false;
+          }
+
+        /* Advance. */
+        read_bytes -= page_read_bytes;
+        zero_bytes -= page_zero_bytes;
+        upage += PGSIZE;
+      }
+  #endif
+      
+  
   return true;
 }
 
@@ -599,16 +639,18 @@ setup_stack (void **esp, const char *cmdline)
 {
   char *argv[128];    // pintos 参数最大值
   int argc = 0, i;
-  uint8_t *kpage;
+  uint8_t *upage, *kpage;
   bool success = false;
 
-  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  if (kpage == NULL) return false;
+  // kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  // if (kpage == NULL) return false;
+  upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
+  kpage = alloc_frame (upage);
     
-  success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
+  success = install_page (upage, kpage, true);
   if (!success)
     {
-      palloc_free_page (kpage);
+      free_frame (kpage);
       return false;
     }
     

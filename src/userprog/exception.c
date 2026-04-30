@@ -150,8 +150,8 @@ page_fault (struct intr_frame *f)
   user = (f->error_code & PF_U) != 0;
 
   if (!user) {
-      f->eip = (void (*) (void))f->eax; 
-      f->eax = -1;
+      f->eip = (void (*) (void))f->eax;   // 返回标签1
+      f->eax = -1;                        // 将会存到result中
       return;
   }
 
