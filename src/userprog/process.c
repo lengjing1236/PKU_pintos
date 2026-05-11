@@ -19,6 +19,7 @@
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
 #include "vm/frame.h"
+#include "vm/page.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -123,7 +124,7 @@ process_execute (const char *file_name)
 
   sema_down (&child_stat->load_sema);
   if (!child_stat->load_success)
-    goto load_fail;
+    goto load_fail;       // start_process线程成功创建，由它释放cmd_copy
 
   /* 创建子进程成功，设置剩余的子进程状态字段，
     并将状态添加到当前进程的子进程状态链表 */
@@ -266,6 +267,9 @@ process_exit (void)
       file_close (cur->exec_file);
       cur->exec_file = NULL;
     }
+
+  // 释放进程补充页表
+  SPT_destroy (cur);
 }
 
 /** Sets up the CPU for running user code in the current
@@ -381,6 +385,10 @@ load (const char *cmdline, void (**eip) (void), void **esp)
   if (t->pagedir == NULL) 
     goto done;
   process_activate ();
+  // 虚拟内存开启，初始化进程的SPT
+  #ifdef VM
+  SPT_init (t);
+  #endif
 
   /* Open executable file. */
   file = filesys_open (prog_name);
@@ -556,77 +564,77 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
 
-  #ifndef VM
-    file_seek (file, ofs);
-    while (read_bytes > 0 || zero_bytes > 0) 
-      {
-        /* Calculate how to fill this page.
-          We will read PAGE_READ_BYTES bytes from FILE
-          and zero the final PAGE_ZERO_BYTES bytes. */
-        size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-        size_t page_zero_bytes = PGSIZE - page_read_bytes;      
+#ifndef VM
+  file_seek (file, ofs);
+  while (read_bytes > 0 || zero_bytes > 0) 
+    {
+      /* Calculate how to fill this page.
+        We will read PAGE_READ_BYTES bytes from FILE
+        and zero the final PAGE_ZERO_BYTES bytes. */
+      size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+      size_t page_zero_bytes = PGSIZE - page_read_bytes;      
 
-        /* Get a page of memory. */
-        uint8_t *kpage = palloc_get_page (PAL_USER);
-        if (kpage == NULL)
+      /* Get a page of memory. */
+      uint8_t *kpage = palloc_get_page (PAL_USER);
+      if (kpage == NULL)
+        return false;
+
+      /* Load this page. */
+      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+        {
+          palloc_free_page (kpage);
+          return false; 
+        }
+      memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+      /* Add the page to the process's address space. */
+      if (!install_page (upage, kpage, writable)) 
+        {
+          palloc_free_page (kpage);
+          return false; 
+        }
+
+      /* Advance. */
+      read_bytes -= page_read_bytes;
+      zero_bytes -= page_zero_bytes;
+      upage += PGSIZE;
+    }
+
+#else
+  // fill in code for demand paging behavior in lab 3.
+  file_seek (file, ofs);
+  while (read_bytes > 0 || zero_bytes > 0) 
+    {
+      /* Calculate how to fill this page.
+        We will read PAGE_READ_BYTES bytes from FILE
+        and zero the final PAGE_ZERO_BYTES bytes. */
+      size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+      size_t page_zero_bytes = PGSIZE - page_read_bytes;
+
+      /* Get a page of memory. */
+      uint8_t *kpage = alloc_frame_for_upage (upage);
+
+      // /* Load this page. */
+      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+        {
+          free_frame (kpage);
+          return false; 
+        }
+      memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+      /* Add the page to the process's address space. */
+      if (!install_page (upage, kpage, writable)) 
+        {
+          free_frame (kpage);
           return false;
+        }
 
-        /* Load this page. */
-        if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-          {
-            palloc_free_page (kpage);
-            return false; 
-          }
-        memset (kpage + page_read_bytes, 0, page_zero_bytes);
-
-        /* Add the page to the process's address space. */
-        if (!install_page (upage, kpage, writable)) 
-          {
-            palloc_free_page (kpage);
-            return false; 
-          }
-
-        /* Advance. */
-        read_bytes -= page_read_bytes;
-        zero_bytes -= page_zero_bytes;
-        upage += PGSIZE;
-      }
-
-  #else
-    // fill in code for demand paging behavior in lab 3.
-    file_seek (file, ofs);
-    while (read_bytes > 0 || zero_bytes > 0) 
-      {
-        /* Calculate how to fill this page.
-          We will read PAGE_READ_BYTES bytes from FILE
-          and zero the final PAGE_ZERO_BYTES bytes. */
-        size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-        size_t page_zero_bytes = PGSIZE - page_read_bytes;
-
-        /* Get a page of memory. */
-        uint8_t *kpage = alloc_frame (upage);
-
-        // /* Load this page. */
-        if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-          {
-            free_frame (kpage);
-            return false; 
-          }
-        memset (kpage + page_read_bytes, 0, page_zero_bytes);
-
-        /* Add the page to the process's address space. */
-        if (!install_page (upage, kpage, writable)) 
-          {
-            free_frame (kpage);
-            return false;
-          }
-
-        /* Advance. */
-        read_bytes -= page_read_bytes;
-        zero_bytes -= page_zero_bytes;
-        upage += PGSIZE;
-      }
-  #endif
+      /* Advance. */
+      read_bytes -= page_read_bytes;
+      zero_bytes -= page_zero_bytes;
+      upage += PGSIZE;
+    }
+#endif
       
   
   return true;
@@ -642,11 +650,14 @@ setup_stack (void **esp, const char *cmdline)
   uint8_t *upage, *kpage;
   bool success = false;
 
-  // kpage = palloc_get_page (PAL_USER | PAL_ZERO);
-  // if (kpage == NULL) return false;
+#ifndef VM
+  kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+  if (kpage == NULL) return false;
+#else
   upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
-  kpage = alloc_frame (upage);
-    
+  kpage = alloc_frame_for_upage (upage);
+#endif
+
   success = install_page (upage, kpage, true);
   if (!success)
     {

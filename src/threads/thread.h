@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "fixed-point.h"
+#include "hash.h"
 
 /** States in a thread's life cycle. */
 enum thread_status
@@ -114,6 +115,12 @@ struct thread
     int next_fd;                        /**< 下一个要分配的文件描述符 */
     struct list fd_list;                /**< 一个进程的所拥有的文件链表 */
     struct file *exec_file;             /**< 执行中的文件，不可写入 */
+#endif
+
+#ifdef VM
+   /* Owned by vm/page.c*/
+   struct hash *SPT;                     /**< 进程的补充页表指针 */
+
 #endif
 
     /* Owned by thread.c. */

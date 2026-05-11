@@ -109,8 +109,10 @@ pintos_init (void)
   malloc_init ();
   paging_init ();
 
+#ifdef VM
   /* 初始化虚拟内存的相关表 */
   frame_table_init ();
+#endif
 
   /* Segmentation. */
 #ifdef USERPROG

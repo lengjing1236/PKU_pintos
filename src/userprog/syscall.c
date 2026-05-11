@@ -87,7 +87,8 @@ find_fd (int fd)
   struct thread *cur = thread_current ();
   struct list_elem *e;
 
-  for (e = list_begin (&cur->fd_list); e != list_end (&cur->fd_list); e = list_next (e)) {
+  for (e = list_begin (&cur->fd_list); e != list_end (&cur->fd_list); e = list_next (e))
+  {
     struct file_desc *d = list_entry (e, struct file_desc, elem);
     if (d->fd == fd)
       return d;

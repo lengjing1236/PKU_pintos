@@ -15,8 +15,8 @@ struct frame_table_entry {
     struct list_elem elem;  // 哈希表元素
 };
 
-void frame_table_init ();
-void *alloc_frame (void *upage);
+void frame_table_init (void);
+void *alloc_frame_for_upage (void *upage);
 void free_frame (void *kpage);
 
 #endif // frame.h

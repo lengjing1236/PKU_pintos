@@ -15,7 +15,7 @@ void frame_table_init()
  * 如果用户池不够，panic kernel
  */
 void *
-alloc_frame (void *upage)
+alloc_frame_for_upage (void *upage)
 {
     void *kpage = palloc_get_page(PAL_USER);
     if (kpage == NULL)
@@ -27,7 +27,7 @@ alloc_frame (void *upage)
     if (fte == NULL)
     {
         palloc_free_page (kpage);
-        PANIC ("malloc: out of memory");
+        PANIC ("FTE malloc: out of memory");
     }
 
     fte->user_page = upage;
