@@ -179,7 +179,8 @@ page_fault (struct intr_frame *f)
    }
 
    // 分配一个实际帧
-   void *kpage = alloc_frame_for_upage (upage, spte);
+   struct frame_table_entry *fte = alloc_frame_for_upage (upage, spte);
+   void *kpage = fte->kernel_page;
 
    if (spte->page_location == IN_FILE)
    {
@@ -187,7 +188,7 @@ page_fault (struct intr_frame *f)
       file_seek (spte->file, spte->ofs);
       if (file_read (spte->file, kpage, spte->read_bytes) != (int) spte->read_bytes)
       {
-         free_frame (kpage);
+         free_frame_by_fte (fte);
          kill (f);
       }
       memset (kpage + spte->read_bytes, 0, spte->zero_bytes);
@@ -195,7 +196,7 @@ page_fault (struct intr_frame *f)
       struct thread *cur = thread_current ();
       if (!pagedir_set_page (cur->pagedir, upage, kpage, spte->writable))
       {
-         free_frame (kpage);
+         free_frame_by_fte (fte);
          kill (f);
       }
 

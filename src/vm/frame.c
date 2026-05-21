@@ -16,7 +16,7 @@ void frame_table_init()
  * 如果用户池不够，panic kernel
  * 在给定的spte中建立映射
  */
-void *
+struct frame_table_entry *
 alloc_frame_for_upage (void *upage, struct SPT_entry *spte)
 {
     void *kpage = palloc_get_page(PAL_USER);
@@ -40,13 +40,26 @@ alloc_frame_for_upage (void *upage, struct SPT_entry *spte)
 
     spte->frame = fte;
 
-    return kpage;
+    return fte;
+}
+
+/**
+ * 根据帧表项，从frame_table中删除对应的条目
+ * 并释放帧占有的物理内存和fte本身
+ */
+void 
+free_frame_by_fte (struct frame_table_entry *fte)
+{
+    list_remove (&fte->elem);
+    palloc_free_page (fte->kernel_page);
+    free (fte);
 }
 
 /* 根据内核虚拟地址，在帧表中寻找对应的帧表项，
  * 从帧表中删除，并释放所有相关数据
  */
-void free_frame(void *kpage)
+void
+free_frame_by_kpage (void *kpage)
 {
     struct list_elem *e;
     for (e = list_begin (&frame_table); e != list_end (&frame_table); e = list_next (e))
@@ -55,11 +68,9 @@ void free_frame(void *kpage)
         if (fte->kernel_page == kpage)
         {
             // 释放帧表项的相关内存
-            list_remove (e);
-            palloc_free_page (kpage);
-            free (fte);
+            free_frame_by_fte (fte);
             return;
         }
-
     }
 }
+

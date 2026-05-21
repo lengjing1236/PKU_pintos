@@ -17,7 +17,8 @@ struct frame_table_entry {
 };
 
 void frame_table_init (void);
-void *alloc_frame_for_upage (void *upage, struct SPT_entry *spte);
-void free_frame (void *kpage);
+struct frame_table_entry *alloc_frame_for_upage (void *upage, struct SPT_entry *spte);
+void free_frame_by_fte (struct frame_table_entry *fte);
+void free_frame_by_kpage (void *kpage);
 
 #endif // frame.h

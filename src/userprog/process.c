@@ -644,19 +644,27 @@ setup_stack (void **esp, const char *cmdline)
 #ifndef VM
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage == NULL) return false;
-#else
-  upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
-  struct SPT_entry *spte = SPTE_create (upage, IN_MEMORY, true);
-  kpage = alloc_frame_for_upage (upage, spte);
-#endif
 
   success = install_page (upage, kpage, true);
   if (!success)
     {
-      free_frame (kpage);
+      palloc_free_page (kpage);
       return false;
     }
-    
+#else
+  upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
+  struct SPT_entry *spte = SPTE_create (upage, IN_MEMORY, true);
+  struct frame_table_entry *fte = alloc_frame_for_upage (upage, spte);
+  kpage = fte->kernel_page;
+  
+  success = install_page (upage, kpage, true);
+  if (!success)
+    {
+      free_frame_by_fte (fte);
+      return false;
+    }
+#endif
+
   *esp = PHYS_BASE;
 
   char *buf = palloc_get_page (0);
