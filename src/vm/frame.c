@@ -3,6 +3,7 @@
 #include "threads/malloc.h"
 #include "threads/vaddr.h"
 
+
 struct list frame_table;
 
 void frame_table_init()
@@ -13,9 +14,10 @@ void frame_table_init()
 /* 分配一个frame，返回其对应的内核虚拟地址
  * 并且初始化frame table entry，将其添加到frame table中
  * 如果用户池不够，panic kernel
+ * 在给定的spte中建立映射
  */
 void *
-alloc_frame_for_upage (void *upage)
+alloc_frame_for_upage (void *upage, struct SPT_entry *spte)
 {
     void *kpage = palloc_get_page(PAL_USER);
     if (kpage == NULL)
@@ -36,6 +38,8 @@ alloc_frame_for_upage (void *upage)
     fte->dirty = false;
     list_push_front (&frame_table, &fte->elem);
 
+    spte->frame = fte;
+
     return kpage;
 }
 
@@ -48,7 +52,8 @@ void free_frame(void *kpage)
     for (e = list_begin (&frame_table); e != list_end (&frame_table); e = list_next (e))
     {
         struct frame_table_entry *fte = list_entry (e, struct frame_table_entry, elem);
-        if (fte->kernel_page == kpage) {
+        if (fte->kernel_page == kpage)
+        {
             // 释放帧表项的相关内存
             list_remove (e);
             palloc_free_page (kpage);

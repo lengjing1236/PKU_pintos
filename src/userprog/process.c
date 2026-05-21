@@ -602,7 +602,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 #else
   // fill in code for demand paging behavior in lab 3.
-  file_seek (file, ofs);
   while (read_bytes > 0 || zero_bytes > 0) 
     {
       /* Calculate how to fill this page.
@@ -611,27 +610,19 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      /* Get a page of memory. */
-      uint8_t *kpage = alloc_frame_for_upage (upage);
+      /* 将该page的信息记录到SPTE当中，以便page_fault可以加载对应的page */
+      struct SPT_entry *spte = SPTE_create (upage, IN_FILE, writable);
+      spte->file = file;
+      spte->ofs = ofs;
+      spte->read_bytes = page_read_bytes;
+      spte->zero_bytes = page_zero_bytes;
 
-      // /* Load this page. */
-      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
-        {
-          free_frame (kpage);
-          return false; 
-        }
-      memset (kpage + page_read_bytes, 0, page_zero_bytes);
-
-      /* Add the page to the process's address space. */
-      if (!install_page (upage, kpage, writable)) 
-        {
-          free_frame (kpage);
-          return false;
-        }
+      ASSERT (SPTE_insert (&spte->elem));
 
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
+      ofs += page_read_bytes;
       upage += PGSIZE;
     }
 #endif
@@ -655,7 +646,8 @@ setup_stack (void **esp, const char *cmdline)
   if (kpage == NULL) return false;
 #else
   upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
-  kpage = alloc_frame_for_upage (upage);
+  struct SPT_entry *spte = SPTE_create (upage, IN_MEMORY, true);
+  kpage = alloc_frame_for_upage (upage, spte);
 #endif
 
   success = install_page (upage, kpage, true);

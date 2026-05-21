@@ -1,9 +1,14 @@
 #include "userprog/exception.h"
 #include <inttypes.h>
 #include <stdio.h>
+#include "lib/string.h"
 #include "userprog/gdt.h"
+#include "userprog/pagedir.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
+#include "vm/page.h"
+#include "filesys/file.h"
 
 /** Number of page faults processed. */
 static long long page_fault_cnt;
@@ -158,11 +163,43 @@ page_fault (struct intr_frame *f)
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
-  kill (f);
+//   printf ("Page fault at %p: %s error %s page in %s context.\n",
+//           fault_addr,
+//           not_present ? "not present" : "rights violation",
+//           write ? "writing" : "reading",
+//           user ? "user" : "kernel");
+
+   /* 实现虚拟内存，将数据懒加载到内存  */
+   void *upage =  pg_round_down (fault_addr);
+   struct SPT_entry *spte = SPTE_lookup (upage);
+   if (spte == NULL) 
+   {
+      // 没有相关的page的信息
+      kill (f);
+   }
+
+   // 分配一个实际帧
+   void *kpage = alloc_frame_for_upage (upage, spte);
+
+   if (spte->page_location == IN_FILE)
+   {
+      // 数据在文件中，加载到分配的物理帧中
+      file_seek (spte->file, spte->ofs);
+      if (file_read (spte->file, kpage, spte->read_bytes) != (int) spte->read_bytes)
+      {
+         free_frame (kpage);
+         kill (f);
+      }
+      memset (kpage + spte->read_bytes, 0, spte->zero_bytes);
+
+      struct thread *cur = thread_current ();
+      if (!pagedir_set_page (cur->pagedir, upage, kpage, spte->writable))
+      {
+         free_frame (kpage);
+         kill (f);
+      }
+
+      spte->page_location = IN_MEMORY;    // 更新状态
+   }
 }
 
