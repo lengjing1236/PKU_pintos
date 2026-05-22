@@ -21,15 +21,15 @@ page_hash_less (const struct hash_elem *a_,
 
 /* 释放spte指向的帧的内存 */
 static void 
-hash_free (struct hash_elem *e, void *aux)
+hash_free (struct hash_elem *e, void *aux UNUSED)
 {
     struct SPT_entry *spte = hash_entry (e, struct SPT_entry, elem);
 
-    // 释放spte指向的page
-    if (spte->page_location == IN_MEMORY)
-    {
-        free_frame (spte->frame->kernel_page);
-    }
+    // 不需要释放spte指向的page，已经在pagedir_destroy里面释放了
+    // if (spte->page_location == IN_MEMORY)
+    // {
+    //     free_frame_by_fte (spte->frame);
+    // }
 
     // 释放spte本身
     free (spte);

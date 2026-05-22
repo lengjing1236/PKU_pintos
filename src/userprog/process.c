@@ -661,8 +661,11 @@ setup_stack (void **esp, const char *cmdline)
   if (!success)
     {
       free_frame_by_fte (fte);
+      free (spte);
       return false;
     }
+  
+  ASSERT (SPTE_insert (&spte->elem));
 #endif
 
   *esp = PHYS_BASE;
