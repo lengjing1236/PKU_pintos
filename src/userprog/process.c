@@ -268,8 +268,10 @@ process_exit (void)
       cur->exec_file = NULL;
     }
 
+#ifdef VM
   // 释放进程补充页表
   SPT_destroy (cur);
+#endif
 }
 
 /** Sets up the CPU for running user code in the current
@@ -641,6 +643,7 @@ setup_stack (void **esp, const char *cmdline)
   uint8_t *upage, *kpage;
   bool success = false;
 
+  upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
 #ifndef VM
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage == NULL) return false;
@@ -652,7 +655,6 @@ setup_stack (void **esp, const char *cmdline)
       return false;
     }
 #else
-  upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
   struct SPT_entry *spte = SPTE_create (upage, IN_MEMORY, true);
   struct frame_table_entry *fte = alloc_frame_for_upage (upage, spte);
   kpage = fte->kernel_page;

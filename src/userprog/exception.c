@@ -154,28 +154,38 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  if (!user) {
+
+#ifndef VM
+   if (!user) {
       f->eip = (void (*) (void))f->eax;   // 返回标签1
       f->eax = -1;                        // 将会存到result中
       return;
-  }
-
+   }
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
-//   printf ("Page fault at %p: %s error %s page in %s context.\n",
-//           fault_addr,
-//           not_present ? "not present" : "rights violation",
-//           write ? "writing" : "reading",
-//           user ? "user" : "kernel");
-
+   // printf ("Page fault at %p: %s error %s page in %s context.\n",
+   //        fault_addr,
+   //        not_present ? "not present" : "rights violation",
+   //        write ? "writing" : "reading",
+   //        user ? "user" : "kernel");
+   kill (f);
+#else
    /* 实现虚拟内存，将数据懒加载到内存  */
    void *upage =  pg_round_down (fault_addr);
    struct SPT_entry *spte = SPTE_lookup (upage);
    if (spte == NULL) 
    {
       // 没有相关的page的信息
-      kill (f);
+      if (!user) 
+      {
+         // 内核态探测时发现没有映射
+         f->eip = (void (*) (void))f->eax;   // 返回标签1
+         f->eax = -1;                        // 将会存到result中
+         return;
+      }
+
+      kill (f);   // 用户态访问了没有映射的地址
    }
 
    // 分配一个实际帧
@@ -202,5 +212,7 @@ page_fault (struct intr_frame *f)
 
       spte->page_location = IN_MEMORY;    // 更新状态
    }
+#endif
+
 }
 
